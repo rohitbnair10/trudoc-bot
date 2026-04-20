@@ -198,7 +198,33 @@ def run_outreach() -> Response:
         app.logger.error("Outreach failed: %s", exc)
         return Response(f"Error: {exc}", status=500)
 
+@app.route("/seed-patient", methods=["POST"])
+def seed_patient():
+    secret = os.getenv("OUTREACH_SECRET", "")
+    if not secret or request.headers.get("X-Outreach-Secret") != secret:
+        return Response("Unauthorized", status=401)
+    
+    from datetime import date, timedelta
+    phone = request.json.get("phone")
+    name = request.json.get("name", "Test Patient")
+    if not phone:
+        return Response("phone required", status=400)
 
+    from storage import get_patient, save_patient
+    patient = get_patient(phone)
+    patient["name"] = name
+    patient["medications"] = [
+        {
+            "name": "Metformin",
+            "dosage": "500mg",
+            "frequency": "twice daily",
+            "next_refill_date": (date.today() + timedelta(days=3)).strftime("%Y-%m-%d"),
+            "days_supply": 30,
+            "last_refill_date": None,
+        }
+    ]
+    save_patient(phone, patient)
+    return Response(f"Seeded: {phone}", status=200)
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
