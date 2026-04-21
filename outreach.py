@@ -140,14 +140,15 @@ def _build_message(patient: dict, due_meds: list[dict]) -> str:
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def run_refill_outreach(days_ahead: int = DAYS_AHEAD) -> None:
-    if not DATA_FILE.exists():
-        print("No patient data found. Run seed_demo.py first.")
+    from storage import all_patients
+    patients_map = all_patients()
+    if not patients_map:
+        print("No patient data found.")
         return
 
-    all_patients = json.loads(DATA_FILE.read_text())
     sent, skipped = 0, 0
 
-    for phone, _ in all_patients.items():
+    for phone, _ in patients_map.items():
         patient = get_patient(phone)
         due_meds = _due_medications(patient, days_ahead)
 
