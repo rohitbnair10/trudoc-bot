@@ -50,28 +50,57 @@ def _send_twilio(to: str, body: str) -> None:
 def _handle_twilio() -> Response:
     from twilio.twiml.messaging_response import MessagingResponse
 
-    from_number = request.form.get("From", "").strip()
-    body = request.form.get("Body", "").strip()
-    num_media = int(request.form.get("NumMedia", "0"))
+    def _safe_reply(text: str) -> Response:
+        resp = MessagingResponse()
+        resp.message(text)
+        return Response(str(resp), mimetype="text/xml")
 
-    media = None
-    if num_media > 0:
-        media_url = request.form.get("MediaUrl0", "")
-        content_type = request.form.get("MediaContentType0", "image/jpeg")
-        try:
-            raw, ct = _download_twilio_media(media_url)
-            media = {"data": _to_base64(raw), "content_type": ct}
-        except Exception as exc:
-            app.logger.error("Failed to download Twilio media: %s", exc)
-
-    # Require either text or media
-    if not body and media is None:
+    def _empty() -> Response:
         return Response(str(MessagingResponse()), mimetype="text/xml")
 
-    reply = get_response(from_number, body, media=media)
-    resp = MessagingResponse()
-    resp.message(reply)
-    return Response(str(resp), mimetype="text/xml")
+    try:
+        from_number = request.form.get("From", "").strip()
+        body = request.form.get("Body", "").strip()
+        num_media = int(request.form.get("NumMedia", "0"))
+
+        media = None
+        if num_media > 0:
+            media_url = request.form.get("MediaUrl0", "")
+            content_type = request.form.get("MediaContentType0", "image/jpeg")
+            try:
+                raw, ct = _download_twilio_media(media_url)
+                media = {"data": _to_base64(raw), "content_type": ct}
+            except Exception as exc:
+                app.logger.error("Failed to download Twilio media: %s", exc)
+                # Tell the patient something went wrong with their image
+                return _safe_reply(
+                    "Sorry, I wasn't able to open that image. "
+                    "Could you try sending it again, or send a clearer photo?"
+                )
+
+        # Require either text or media
+        if not body and media is None:
+            return _empty()
+
+        reply = get_response(from_number, body, media=media)
+
+        # Guard against empty reply crashing Twilio
+        if not reply or not reply.strip():
+            app.logger.warning("Empty reply from get_response for %s", from_number)
+            return _safe_reply(
+                "Sorry, something went wrong on our end. Please try again in a moment."
+            )
+
+        return _safe_reply(reply)
+
+    except Exception as exc:
+        app.logger.error("Unhandled error in _handle_twilio: %s", exc, exc_info=True)
+        try:
+            resp = MessagingResponse()
+            resp.message("Sorry, something went wrong. Please try again in a moment.")
+            return Response(str(resp), mimetype="text/xml")
+        except Exception:
+            return Response("<?xml version='1.0'?><Response/>", mimetype="text/xml")
 
 
 # ─── Meta Cloud API helpers ───────────────────────────────────────────────────
@@ -197,63 +226,6 @@ def run_outreach() -> Response:
     except Exception as exc:
         app.logger.error("Outreach failed: %s", exc)
         return Response(f"Error: {exc}", status=500)
-
-
-@app.route("/seed-patient", methods=["POST"])
-def seed_patient() -> Response:
-    """
-    Add or update a patient in patients.json.
-    Protected by X-Outreach-Secret header.
-
-    Required fields:  phone, name
-    Optional fields:  medication, dosage, frequency, days_until_refill, days_supply
-    """
-    secret = os.getenv("OUTREACH_SECRET", "")
-    if not secret or request.headers.get("X-Outreach-Secret") != secret:
-        return Response("Unauthorized", status=401)
-
-    from datetime import date, timedelta
-    from storage import get_patient, save_patient
-
-    body = request.json or {}
-    phone = (body.get("phone") or "").strip()
-    name  = (body.get("name")  or "").strip()
-
-    if not phone:
-        return Response("phone is required", status=400)
-    if not name:
-        return Response("name is required", status=400)
-
-    med_name    = body.get("medication", "Metformin")
-    dosage      = body.get("dosage", "500mg")
-    frequency   = body.get("frequency", "twice daily")
-    days_until  = int(body.get("days_until_refill", 3))
-    days_supply = int(body.get("days_supply", 30))
-
-    next_refill = (date.today() + timedelta(days=days_until)).strftime("%Y-%m-%d")
-
-    patient = get_patient(phone)
-    patient["name"] = name
-
-    existing = next((m for m in patient["medications"] if m["name"].lower() == med_name.lower()), None)
-    med_entry = {
-        "name": med_name,
-        "dosage": dosage,
-        "frequency": frequency,
-        "next_refill_date": next_refill,
-        "days_supply": days_supply,
-        "last_refill_date": None,
-    }
-    if existing:
-        existing.update(med_entry)
-    else:
-        patient["medications"].append(med_entry)
-
-    save_patient(phone, patient)
-    return Response(
-        f"Seeded: {name} ({phone}) — {med_name} {dosage}, refill in {days_until} days",
-        status=200,
-    )
 
 
 if __name__ == "__main__":
