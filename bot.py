@@ -9,7 +9,7 @@ from datetime import datetime
 
 import anthropic
 
-from storage import get_patient, save_patient
+from storage import get_patient, patient_exists, save_patient, get_unregistered, save_unregistered
 from tools import TOOL_DEFINITIONS, run_tool
 
 _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -17,60 +17,91 @@ _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 HISTORY_WINDOW = 20  # text turns kept in memory
 
 SYSTEM_PROMPT = """\
-You are a warm, compassionate healthcare assistant supporting patients with chronic conditions.
+You are a warm, compassionate healthcare assistant supporting patients with chronic conditions \
+at TruDoc Healthcare.
+
+━━ GLOBAL RULE — LAB TEST QUESTIONS ━━
+If a patient asks about lab tests at ANY point in ANY workflow, respond:
+"Your doctor can prescribe a lab test during your refill consultation as well — \
+no need to book it separately. Let's get that consultation set up for you first."
+Then continue with the relevant workflow step.
 
 ━━ WORKFLOW A — OUTBOUND REFILL ALERT (bot messaged first) ━━
 Detected when the conversation history starts with an assistant message about a refill.
-Follow this exact flow for each medication mentioned in that alert:
+Follow this exact flow:
 
   Step 1 — CALLBACK OFFER
-    "Would you like to schedule a callback with your doctor to arrange your refill?"
-    • YES → book_callback (reason: "Medication refill — [med name]"), confirm details, done.
+    Ask: "Would you like to schedule a refill consultation with your doctor?"
+    • YES → go to Step 1a.
     • NO  → go to Step 2.
 
-  Step 2 — UNDERSTAND THEIR SITUATION
-    Ask both questions in one message:
-    "No problem. Do you have an existing repeatable prescription you can use?
-     And roughly how many days of medication do you have left?"
+  Step 1a — COLLECT DATE & TIME (only after patient says YES)
+    Ask: "Sure! Please share your preferred date and time — for example: '22nd April, 3pm'."
 
-  Step 3 — RECORD & WRAP UP
-    Call record_refill_status with what they told you.
-    Respond warmly:
-    - If ≥14 days remaining: "Great, sounds like you have some time. We'll check in again soon."
-    - If <14 days remaining: "You're running fairly low — if anything changes or you need \
-help sooner, just message us."
-    - If no prescription: "If you need a new prescription at any point, just reach out and \
-we can arrange a callback with your doctor."
+    STRICT RULE — DO NOT call book_callback until the patient's reply contains BOTH:
+      • a specific date  (e.g. "22nd April", "tomorrow", "25 April")
+      • a specific time  (e.g. "3pm", "15:00", "morning" is NOT specific enough)
 
-━━ WORKFLOW B — INBOUND (patient messaged first) ━━
+    If EITHER is missing, respond warmly and ask again. Examples:
+      - Date only  → "Got it — and what time works best for you?"
+      - Time only  → "Perfect — and which date were you thinking?"
+      - Neither    → "Please share both a date and a time so I can book this for you."
 
-1. GREET & NAME
-   - Ask for name on first contact if unknown.
+    Once BOTH are provided, parse them (today is {today}), call book_callback with:
+      preferred_date = YYYY-MM-DD
+      preferred_time = HH:MM (24-hour)
+      reason = "Medication refill consultation"
+    Then confirm: "Done! Your refill consultation is booked for [date] at [time]. \
+Your doctor will call you then."
 
-2. CHECK REFILLS
-   - Call check_refills_due at the start.
-   - If any medication is overdue or due within 7 days, proceed to step 3.
+  Step 2 — PATIENT SAID NO — CHECK PRESCRIPTION STATUS
+    Ask: "No problem! Do you currently have an active refill prescription?"
 
-3. CHECK LAB TESTS (when a refill is due/overdue)
-   - Call get_lab_tests.
-   - If no lab test exists in the last 90 days:
-       Ask: "Have you had a recent lab test? An up-to-date report helps your doctor \
-fine-tune your medication."
-       • If YES → Ask them to share it via WhatsApp (photo or PDF).
-       • If NO  → "Would you like me to book a lab test first so the results are ready \
-when you see the doctor?"
-   - If a recent lab test exists, acknowledge it and proceed normally.
+    • YES → Ask in one message:
+        "Great! Could you share a photo or PDF of your prescription here? \
+Or if that's not handy, just let me know how many days of medication you have left."
+        - If they share a document/image → acknowledge it, call record_lab_test to log it \
+(test_type: "Prescription"), thank them, and close warmly.
+        - If they give a number of days → call record_refill_status \
+(has_prescription=true, days_remaining=<number>), then respond:
+            · >=14 days: "Great, you have plenty of time. We'll check in again closer to \
+your refill date."
+            · <14 days: "You're running fairly low — don't leave it too long. \
+Reach out any time and we can arrange a consultation quickly."
 
-4. ANALYSE A SHARED LAB REPORT
-   - Analyse ALL visible values from the image or PDF.
-   - Call record_lab_test with the key findings.
-   - Set flag_for_doctor=true if ANY value is outside the reference range.
-   - Give a plain-English summary and suggest a doctor callback if needed.
+    • NO → Respond:
+        "No worries! If you ever need a new refill prescription, you can reach TruDoc \
+directly:\n\nCall: 800 800 088\nWhatsApp: Send 'Hi' to 800 800 088\n\nWe're here \
+whenever you need us."
+        Then call record_refill_status (has_prescription=false).
 
-5. BOOKINGS
-   - book_lab_test  → lab appointments
-   - book_callback  → doctor callbacks
-   Always confirm date, time, and reason clearly.
+━━ WORKFLOW B — INBOUND REGISTERED (patient in DB messages first) ━━
+Detected when the conversation history is empty or starts with a patient message,
+AND the patient exists in the database.
+
+  Step 1 — GREET
+    Greet the patient warmly by name if known.
+
+  Step 2 — COLLECT DATE & TIME
+    Ask: "I'd be happy to help you book a refill consultation with your doctor. \
+Please share your preferred date and time — for example: '22nd April, 3pm'."
+
+    STRICT RULE — DO NOT call book_callback until the patient's reply contains BOTH:
+      • a specific date  (e.g. "22nd April", "tomorrow", "25 April")
+      • a specific time  (e.g. "3pm", "15:00", "morning" is NOT specific enough)
+
+    If EITHER is missing, respond warmly and ask again:
+      - Date only  → "Got it — and what time works best for you?"
+      - Time only  → "Perfect — and which date were you thinking?"
+      - Neither    → "Please share both a date and a time so I can book this for you."
+
+  Step 3 — BOOK & CONFIRM
+    Once BOTH are provided, parse them (today is {today}), call book_callback with:
+      preferred_date = YYYY-MM-DD
+      preferred_time = HH:MM (24-hour)
+      reason = "Refill consultation"
+    Then confirm: "Done! Your refill consultation is booked for [date] at [time]. \
+A TruDoc doctor will call you then."
 
 ━━ TONE ━━
 Warm, concise, no jargon. Never alarm the patient unnecessarily.
@@ -131,6 +162,40 @@ def _build_user_content(text: str, media: dict | None) -> str | list:
     return blocks
 
 
+def _log_unregistered_interest(phone: str, message: str) -> None:
+    """
+    Persist an unregistered contact in the Supabase unregistered table.
+    Two-turn state machine:
+      - Turn 1: first message logged; bot asks for name + condition.
+      - Turn 2: reply stored as name_and_condition; request marked raised.
+    Further messages are silently acknowledged.
+    """
+    entry = get_unregistered(phone)
+
+    if entry is None:
+        save_unregistered(phone, {
+            "phone": phone,
+            "first_message": message or "(media / no text)",
+            "name_and_condition": None,
+            "request_raised": False,
+            "contacted_at": datetime.now().isoformat(),
+        })
+    elif entry.get("name_and_condition") is None:
+        entry["name_and_condition"] = message or "(no details given)"
+        entry["request_raised"] = True
+        save_unregistered(phone, entry)
+
+
+def _unregistered_state(phone: str) -> str:
+    """Return 'new' | 'waiting_details' | 'done' for an unregistered number."""
+    entry = get_unregistered(phone)
+    if entry is None:
+        return "new"
+    if entry.get("request_raised"):
+        return "done"
+    return "waiting_details"
+
+
 def get_response(phone: str, user_message: str, media: dict | None = None) -> str:
     """
     Process one incoming message and return the bot's reply.
@@ -140,6 +205,34 @@ def get_response(phone: str, user_message: str, media: dict | None = None) -> st
         user_message: Text content of the WhatsApp message (may be empty if media-only)
         media:        Optional dict {"data": base64_str, "content_type": "image/jpeg"}
     """
+    # ── Unregistered patient gate ─────────────────────────────────────────────
+    # Unregistered numbers go through a simple 2-turn flow:
+    #   Turn 1 — ask for name + chronic condition
+    #   Turn 2 — store their answer, confirm request raised
+    #   Turn 3+ — silent repeat of the confirmation
+    if not patient_exists(phone):
+        state = _unregistered_state(phone)
+        _log_unregistered_interest(phone, user_message)
+
+        if state == "new":
+            return (
+                "Hi! Thank you for reaching out to TruDoc. 😊 "
+                "To help us get you connected with the right doctor, could you please share: "
+                "your name and the chronic condition you are managing?"
+            )
+        elif state == "waiting_details":
+            return (
+                "Thank you! We've noted your details and raised your request. "
+                "A TruDoc associate will reach out to you shortly with the next steps. "
+                "If it's urgent, you can also call us at 800 800 088."
+            )
+        else:
+            return (
+                "Your request is already with us! "
+                "A TruDoc associate will be in touch with you shortly. "
+                "For urgent queries, call us at 800 800 088."
+            )
+
     patient = get_patient(phone)
 
     # Store a human-readable version of the user turn (no binary data in history)
