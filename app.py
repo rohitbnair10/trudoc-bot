@@ -198,33 +198,64 @@ def run_outreach() -> Response:
         app.logger.error("Outreach failed: %s", exc)
         return Response(f"Error: {exc}", status=500)
 
+
 @app.route("/seed-patient", methods=["POST"])
-def seed_patient():
+def seed_patient() -> Response:
+    """
+    Add or update a patient in patients.json.
+    Protected by X-Outreach-Secret header.
+
+    Required fields:  phone, name
+    Optional fields:  medication, dosage, frequency, days_until_refill, days_supply
+    """
     secret = os.getenv("OUTREACH_SECRET", "")
     if not secret or request.headers.get("X-Outreach-Secret") != secret:
         return Response("Unauthorized", status=401)
-    
-    from datetime import date, timedelta
-    phone = request.json.get("phone")
-    name = request.json.get("name", "Test Patient")
-    if not phone:
-        return Response("phone required", status=400)
 
+    from datetime import date, timedelta
     from storage import get_patient, save_patient
+
+    body = request.json or {}
+    phone = (body.get("phone") or "").strip()
+    name  = (body.get("name")  or "").strip()
+
+    if not phone:
+        return Response("phone is required", status=400)
+    if not name:
+        return Response("name is required", status=400)
+
+    med_name    = body.get("medication", "Metformin")
+    dosage      = body.get("dosage", "500mg")
+    frequency   = body.get("frequency", "twice daily")
+    days_until  = int(body.get("days_until_refill", 3))
+    days_supply = int(body.get("days_supply", 30))
+
+    next_refill = (date.today() + timedelta(days=days_until)).strftime("%Y-%m-%d")
+
     patient = get_patient(phone)
     patient["name"] = name
-    patient["medications"] = [
-        {
-            "name": "Metformin",
-            "dosage": "500mg",
-            "frequency": "twice daily",
-            "next_refill_date": (date.today() + timedelta(days=3)).strftime("%Y-%m-%d"),
-            "days_supply": 30,
-            "last_refill_date": None,
-        }
-    ]
+
+    existing = next((m for m in patient["medications"] if m["name"].lower() == med_name.lower()), None)
+    med_entry = {
+        "name": med_name,
+        "dosage": dosage,
+        "frequency": frequency,
+        "next_refill_date": next_refill,
+        "days_supply": days_supply,
+        "last_refill_date": None,
+    }
+    if existing:
+        existing.update(med_entry)
+    else:
+        patient["medications"].append(med_entry)
+
     save_patient(phone, patient)
-    return Response(f"Seeded: {phone}", status=200)
+    return Response(
+        f"Seeded: {name} ({phone}) — {med_name} {dosage}, refill in {days_until} days",
+        status=200,
+    )
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
