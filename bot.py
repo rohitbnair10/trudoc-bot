@@ -241,6 +241,14 @@ def get_response(phone: str, user_message: str, media: dict | None = None) -> st
 
     patient = get_patient(phone)
 
+    # Backfill any missing keys — guards against records seeded before full schema
+    patient.setdefault("conversation", [])
+    patient.setdefault("callbacks", [])
+    patient.setdefault("lab_tests", [])
+    patient.setdefault("lab_appointments", [])
+    patient.setdefault("refill_status", [])
+    patient.setdefault("medications", [])
+
     # Store a human-readable version of the user turn (no binary data in history)
     stored_text = user_message or ("[Lab report shared]" if media else "")
     patient["conversation"].append({"role": "user", "content": stored_text})
