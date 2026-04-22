@@ -150,6 +150,11 @@ def run_refill_outreach(days_ahead: int = DAYS_AHEAD) -> None:
 
     for phone, _ in patients_map.items():
         patient = get_patient(phone)
+        # Backfill missing keys for records seeded before full schema
+        patient.setdefault("conversation", [])
+        patient.setdefault("callbacks", [])
+        patient.setdefault("medications", [])
+        patient.setdefault("refill_status", [])
         due_meds = _due_medications(patient, days_ahead)
 
         if not due_meds:
