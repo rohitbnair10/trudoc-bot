@@ -260,28 +260,30 @@ def get_response(phone: str, user_message: str, media: dict | None = None) -> st
     system = _build_system(patient)
 
     # ── Agentic loop ──────────────────────────────────────────────────────────
+    import re
+    # Detect once before the loop whether we should force book_callback.
+    # Only applies on the FIRST iteration — once the tool has been called,
+    # subsequent iterations must NOT force it again or Claude loops infinitely.
+    last_user = next(
+        (m["content"] for m in reversed(messages) if m["role"] == "user"
+         and isinstance(m["content"], str)),
+        ""
+    )
+    recent_text = " ".join(
+        m["content"] for m in messages[-6:]
+        if m["role"] in ("user", "assistant") and isinstance(m["content"], str)
+    ).lower()
+
+    time_given = bool(re.search(r'\b(\d{1,2}(:\d{2})?(\s?[ap]m)|\d{2}:\d{2})\b', last_user, re.I))
+    date_in_history = bool(re.search(
+        r'\b(\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|'
+        r'tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}/\d{1,2})',
+        recent_text, re.I
+    ))
+    should_force_booking = time_given and date_in_history
+    booking_forced = False  # flip to True after first forced call
+
     while True:
-        # If the last user message contains a time (e.g. "3pm", "15:00", "3 pm")
-        # AND recent history shows we already have a date, force book_callback to fire.
-        import re
-        last_user = next(
-            (m["content"] for m in reversed(messages) if m["role"] == "user"
-             and isinstance(m["content"], str)),
-            ""
-        )
-        recent_text = " ".join(
-            m["content"] for m in messages[-6:]
-            if m["role"] in ("user", "assistant") and isinstance(m["content"], str)
-        ).lower()
-
-        time_given = bool(re.search(r'\b(\d{1,2}(:\d{2})?(\s?[ap]m)|\d{2}:\d{2})\b', last_user, re.I))
-        date_in_history = bool(re.search(
-            r'\b(\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|'
-            r'tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}/\d{1,2})',
-            recent_text, re.I
-        ))
-        force_booking = time_given and date_in_history
-
         api_kwargs = dict(
             model="claude-opus-4-6",
             max_tokens=1024,
@@ -289,8 +291,9 @@ def get_response(phone: str, user_message: str, media: dict | None = None) -> st
             tools=TOOL_DEFINITIONS,
             messages=messages,
         )
-        if force_booking:
+        if should_force_booking and not booking_forced:
             api_kwargs["tool_choice"] = {"type": "tool", "name": "book_callback"}
+            booking_forced = True
 
         response = _client.messages.create(**api_kwargs)
 
