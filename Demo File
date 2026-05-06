@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0b141a" />
+<title>TruDoc Refill Bot — Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at top, #1a1a1a 0%, #050505 70%);
+    color: #e9edef;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  /* Phone shell */
+  .phone {
+    width: 100%;
+    max-width: 400px;
+    height: min(880px, 96vh);
+    background: #0b141a;
+    border-radius: 44px;
+    border: 10px solid #111;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    box-shadow:
+      0 30px 80px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  }
+
+  /* Notch */
+  .notch {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 110px;
+    height: 28px;
+    background: #000;
+    border-radius: 0 0 18px 18px;
+    z-index: 20;
+  }
+
+  /* Status bar */
+  .status-bar {
+    height: 44px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 28px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    flex-shrink: 0;
+    background: #0b141a;
+  }
+
+  .status-icons { display: inline-flex; gap: 5px; align-items: center; }
+  .status-icons svg { fill: #fff; }
+  .battery { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; }
+  .battery-shell {
+    width: 22px; height: 11px;
+    border: 1px solid #fff; border-radius: 3px;
+    padding: 1px; position: relative;
+  }
+  .battery-shell::after {
+    content: ""; position: absolute; right: -3px; top: 3px;
+    width: 2px; height: 5px; background: #fff; border-radius: 0 1px 1px 0;
+  }
+  .battery-fill { height: 100%; width: 65%; background: #fff; border-radius: 1px; }
+
+  /* Chat header */
+  .header {
+    background: #1f2c33;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+  }
+
+  .back {
+    color: #00a884;
+    font-size: 24px;
+    line-height: 1;
+    font-weight: 300;
+    padding: 0 4px;
+    user-select: none;
+  }
+
+  .avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #00a884 0%, #008a6e 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+  }
+
+  .header-meta { display: flex; flex-direction: column; gap: 1px; }
+  .header-name { font-size: 16px; font-weight: 500; color: #e9edef; }
+  .header-status { font-size: 12px; color: #8696a0; }
+
+  .header-icons { margin-left: auto; display: flex; gap: 18px; color: #aebac1; }
+  .header-icons svg { width: 22px; height: 22px; fill: currentColor; }
+
+  /* Chat area */
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px 8px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background-color: #0b141a;
+    background-image:
+      radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      radial-gradient(rgba(255,255,255,0.018) 1px, transparent 1px);
+    background-size: 24px 24px, 36px 36px;
+    background-position: 0 0, 12px 18px;
+    scroll-behavior: smooth;
+  }
+  .chat::-webkit-scrollbar { width: 0; }
+
+  .date-divider {
+    align-self: center;
+    background: #1f2c33;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #8696a0;
+    margin: 8px 0 6px;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.15);
+  }
+
+  .row { display: flex; width: 100%; }
+  .row.bot { justify-content: flex-start; }
+  .row.user { justify-content: flex-end; }
+
+  .msg {
+    max-width: 78%;
+    padding: 7px 9px 8px 11px;
+    border-radius: 8px;
+    font-size: 14.5px;
+    line-height: 1.42;
+    word-wrap: break-word;
+    position: relative;
+    animation: pop 0.18s ease-out;
+    box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+  }
+
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(4px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .msg.bot {
+    background: #202c33;
+    color: #e9edef;
+    border-top-left-radius: 0;
+  }
+  .msg.bot::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -8px;
+    width: 8px;
+    height: 13px;
+    background: #202c33;
+    clip-path: polygon(100% 0, 0 0, 100% 100%);
+  }
+
+  .msg.user {
+    background: #005c4b;
+    color: #e9edef;
+    border-top-right-radius: 0;
+  }
+  .msg.user::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -8px;
+    width: 8px;
+    height: 13px;
+    background: #005c4b;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+  }
+
+  .msg .meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    float: right;
+    margin-left: 8px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #8696a0;
+    line-height: 1;
+  }
+  .msg.user .meta { color: #aebac1; }
+  .check { font-size: 14px; color: #53bdeb; letter-spacing: -3px; }
+
+  .msg b { font-weight: 600; color: inherit; }
+
+  /* Typing indicator */
+  .typing {
+    background: #202c33;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border-top-left-radius: 0;
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    align-self: flex-start;
+    box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+    position: relative;
+  }
+  .typing::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -8px;
+    width: 8px;
+    height: 13px;
+    background: #202c33;
+    clip-path: polygon(100% 0, 0 0, 100% 100%);
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    background: #8696a0;
+    border-radius: 50%;
+    animation: pulse 1.2s infinite ease-in-out;
+  }
+  .dot:nth-child(2) { animation-delay: 0.18s; }
+  .dot:nth-child(3) { animation-delay: 0.36s; }
+
+  @keyframes pulse {
+    0%, 60%, 100% { opacity: 0.35; transform: scale(1); }
+    30% { opacity: 1; transform: scale(1.15); }
+  }
+
+  /* Input bar */
+  .input-bar {
+    background: #1f2c33;
+    padding: 6px 8px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .input-icon, .input-icon-right {
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    color: #8696a0; flex-shrink: 0;
+  }
+  .input-icon svg, .input-icon-right svg { width: 22px; height: 22px; fill: currentColor; }
+
+  .input-shell {
+    flex: 1;
+    background: #2a3942;
+    border-radius: 24px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+  }
+  .input-field {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #e9edef;
+    font-size: 15px;
+    font-family: inherit;
+  }
+  .input-field::placeholder { color: #8696a0; }
+  .input-shell svg { width: 22px; height: 22px; fill: #8696a0; flex-shrink: 0; }
+
+  .send-btn {
+    width: 42px; height: 42px;
+    background: #00a884;
+    border: none; border-radius: 50%;
+    color: white; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: transform 0.1s, background 0.1s;
+  }
+  .send-btn:hover { background: #06cf99; }
+  .send-btn:active { transform: scale(0.95); }
+  .send-btn svg { width: 20px; height: 20px; fill: #fff; }
+
+  /* Home-indicator-style reset (looks like part of the phone chrome) */
+  .reset {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: transparent;
+    color: rgba(150, 160, 165, 0.35);
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    z-index: 30;
+    font-family: inherit;
+    transition: color 0.15s, transform 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+  }
+  .reset svg { width: 12px; height: 12px; fill: currentColor; }
+  .reset:hover { color: rgba(200, 210, 215, 0.7); }
+  .reset:active { transform: translateX(-50%) scale(0.9); }
+
+  /* Footer label outside phone */
+  .demo-tag {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.3);
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+  }
+
+  @media (max-width: 420px) {
+    body { padding: 0; }
+    .phone { border-radius: 0; border: 0; height: 100vh; max-width: 100%; }
+    .notch { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="notch"></div>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <span id="clock">10:56</span>
+    <div class="status-icons">
+      <svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="0.5"/><rect x="4.5" y="5" width="3" height="6" rx="0.5"/><rect x="9" y="2.5" width="3" height="8.5" rx="0.5"/><rect x="13.5" y="0" width="3" height="11" rx="0.5"/></svg>
+      <svg width="16" height="11" viewBox="0 0 16 11"><path d="M8 1.5C5.5 1.5 3.2 2.4 1.4 3.9c-.3.2-.3.6 0 .8l.7.7c.2.2.5.2.7 0C4.2 4.2 6 3.5 8 3.5s3.8.7 5.2 1.9c.2.2.5.2.7 0l.7-.7c.3-.3.3-.6 0-.8C12.8 2.4 10.5 1.5 8 1.5zM8 5.5c-1.4 0-2.7.5-3.7 1.4-.3.3-.3.6 0 .9l.7.7c.2.2.5.2.7 0 .6-.5 1.4-.8 2.3-.8s1.7.3 2.3.8c.2.2.5.2.7 0l.7-.7c.3-.3.3-.6 0-.9C10.7 6 9.4 5.5 8 5.5zM8 9c-.6 0-1 .2-1.3.5-.2.2-.2.5 0 .7l1 1c.2.2.5.2.7 0l1-1c.2-.2.2-.5 0-.7-.4-.3-.8-.5-1.4-.5z"/></svg>
+      <span class="battery">
+        <span class="battery-shell"><span class="battery-fill"></span></span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <div class="header">
+    <span class="back">‹</span>
+    <div class="avatar">TD</div>
+    <div class="header-meta">
+      <span class="header-name">TruDoc</span>
+      <span class="header-status">online</span>
+    </div>
+    <div class="header-icons">
+      <svg viewBox="0 0 24 24"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat" id="chat"></div>
+
+  <!-- Input -->
+  <div class="input-bar">
+    <div class="input-icon">
+      <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    </div>
+    <div class="input-shell">
+      <input type="text" class="input-field" id="msgInput" placeholder="Message" autocomplete="off" />
+      <svg viewBox="0 0 24 24"><path d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.609 1.011.978 6.033.978 12.228s4.826 10.761 11.021 10.761S23.02 18.423 23.02 12.228c.001-6.195-5.021-11.217-11.216-11.217z"/></svg>
+    </div>
+    <div class="input-icon-right">
+      <svg viewBox="0 0 24 24"><path d="M9.4 10.5l4.77-8.26C13.47 2.09 12.75 2 12 2 9.42 2 7.04 2.81 5.07 4.18l4.32 6.32H9.4zM21.54 9c-.92-2.92-2.97-5.32-5.61-6.61L11.59 9h9.95zM21.54 15c.45-1.39.71-2.81.71-4 .03-1.05-.13-2.09-.42-3h-7.55l3.32 5.78c2.04-1.6 3.7-3.6 4.94-5.78zM4.46 9C5.38 6.08 7.43 3.68 10.07 2.39L14.41 9h-9.95zm0 6c.45 1.39 1.16 2.65 2.07 3.74L9.85 12.87 4.46 15zm5.05 5.91c1.31.69 2.78 1.09 4.49 1.09 4.41 0 8-3.59 8-8 0-.65-.08-1.27-.21-1.88L8.34 17.43l1.17 3.48zM6.97 17.86l1.17-3.48C7.02 12.78 5 9 5 9c-.5.51-.97 1.46-1.34 2.46-.34 1-.66 1.85-.66 2.54 0 1.93.85 4.31 1.97 5.86z"/></svg>
+    </div>
+    <button class="send-btn" id="sendBtn" aria-label="Send">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </div>
+
+  <button class="reset" id="resetBtn" aria-label="Restart" title="">
+    <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4a8 8 0 108 8h-2a6 6 0 11-1.76-4.24L13 11h7V4l-2.35 2.35z"/></svg>
+  </button>
+</div>
+
+<script>
+  // ---- State machine -----------------------------------------------------
+  const STATES = {
+    AWAIT_YESNO: "awaiting_yes_no",
+    AWAIT_DATE:  "awaiting_date",
+    AWAIT_TIME:  "awaiting_time",
+    DONE:        "done",
+    DECLINED:    "declined"
+  };
+
+  let state = STATES.AWAIT_YESNO;
+  let scheduledDate = null;
+  let scheduledTime = null;
+
+  const chat   = document.getElementById("chat");
+  const input  = document.getElementById("msgInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const resetBtn = document.getElementById("resetBtn");
+
+  // ---- Helpers -----------------------------------------------------------
+  function timeNow() {
+    const d = new Date();
+    let h = d.getHours();
+    const m = d.getMinutes();
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
+  }
+
+  function scrollDown() {
+    requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  }
+
+  function addDateDivider(text) {
+    const el = document.createElement("div");
+    el.className = "date-divider";
+    el.textContent = text;
+    chat.appendChild(el);
+    scrollDown();
+  }
+
+  // Render bold (**x** or *x*) and basic newlines
+  function renderRich(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/\*(.+?)\*/g, "<b>$1</b>")
+      .replace(/\n/g, "<br>");
+  }
+
+  function addBotMsg(text) {
+    return new Promise(resolve => {
+      const typing = document.createElement("div");
+      typing.className = "typing";
+      typing.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+      const row = document.createElement("div");
+      row.className = "row bot";
+      row.appendChild(typing);
+      chat.appendChild(row);
+      scrollDown();
+
+      const delay = 700 + Math.min(text.length * 14, 1100);
+      setTimeout(() => {
+        row.remove();
+        const m = document.createElement("div");
+        m.className = "msg bot";
+        m.innerHTML = renderRich(text)
+          + `<span class="meta">${timeNow()}</span>`;
+        const r = document.createElement("div");
+        r.className = "row bot";
+        r.appendChild(m);
+        chat.appendChild(r);
+        scrollDown();
+        resolve();
+      }, delay);
+    });
+  }
+
+  function addUserMsg(text) {
+    const m = document.createElement("div");
+    m.className = "msg user";
+    m.innerHTML = escapeHtml(text)
+      + `<span class="meta">${timeNow()}<span class="check">✓✓</span></span>`;
+    const r = document.createElement("div");
+    r.className = "row user";
+    r.appendChild(m);
+    chat.appendChild(r);
+    scrollDown();
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  // ---- Parsing helpers ---------------------------------------------------
+  function looksLikeYes(t) {
+    return /^(yes|yeah|yep|yup|y|sure|ok(ay)?|book( it)?|please|pls|go ahead|sounds good)\b/i.test(t.trim());
+  }
+  function looksLikeNo(t) {
+    return /^(no|nope|n|not (now|today)|i'?m fine|i have meds?|got meds?)\b/i.test(t.trim());
+  }
+  function hasTime(t) {
+    return /\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i.test(t)
+        || /\b([01]?\d|2[0-3]):[0-5]\d\b/.test(t)
+        || /\b(noon|midnight|morning|afternoon|evening)\b/i.test(t);
+  }
+  function hasDate(t) {
+    return /\b\d{1,2}(st|nd|rd|th)?\s*(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/i.test(t)
+        || /\b(today|tomorrow|tmrw|tmr|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next (week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(t)
+        || /\b\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?\b/.test(t);
+  }
+  function normalizeDate(raw) {
+    // strip trailing year (so "31st May 2026" → "31st May")
+    return raw.replace(/[,\s]+\d{4}\s*$/i, "").trim();
+  }
+  function normalizeTime(raw) {
+    const m = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+    if (!m) return raw.trim();
+    let h = parseInt(m[1], 10);
+    const min = m[2] || "00";
+    let ampm = (m[3] || "").toUpperCase();
+    if (!ampm) {
+      if (h >= 13) { ampm = "PM"; h -= 12; }
+      else if (h === 0) { ampm = "AM"; h = 12; }
+      else if (h === 12) { ampm = "PM"; }
+      else { ampm = "AM"; }
+    }
+    if (h === 0) h = 12;
+    return `${h}:${min} ${ampm}`;
+  }
+
+  // ---- Conversation ------------------------------------------------------
+  async function handleSend() {
+    const text = input.value.trim();
+    if (!text) return;
+    addUserMsg(text);
+    input.value = "";
+    input.focus();
+    await new Promise(r => setTimeout(r, 320));
+    await routeReply(text);
+  }
+
+  async function routeReply(text) {
+    if (state === STATES.AWAIT_YESNO) {
+      if (looksLikeYes(text)) {
+        state = STATES.AWAIT_DATE;
+        await addBotMsg(`Great! Please share your preferred date and time — for example: "22nd April, 3pm." 😊`);
+      } else if (looksLikeNo(text)) {
+        state = STATES.DECLINED;
+        await addBotMsg(`No problem — we'll follow up closer to your refill date. If anything changes, just message us. 🙂`);
+      } else {
+        await addBotMsg(`Just to confirm — would you like to book a callback with your doctor? Reply **YES** to book or **NO** if you're sorted.`);
+      }
+      return;
+    }
+
+    if (state === STATES.AWAIT_DATE) {
+      const d = hasDate(text);
+      const t = hasTime(text);
+      if (d && t) {
+        scheduledDate = normalizeDate(text);
+        scheduledTime = normalizeTime(text);
+        state = STATES.DONE;
+        await confirmBooking();
+      } else if (d || /\d/.test(text)) {
+        scheduledDate = normalizeDate(text);
+        state = STATES.AWAIT_TIME;
+        await addBotMsg(`Got it — and what time works best for you?`);
+      } else {
+        await addBotMsg(`Could you share a specific date? For example: *31st May 2026* or *Tomorrow*.`);
+      }
+      return;
+    }
+
+    if (state === STATES.AWAIT_TIME) {
+      scheduledTime = normalizeTime(text);
+      state = STATES.DONE;
+      await confirmBooking();
+      return;
+    }
+
+    if (state === STATES.DONE) {
+      await addBotMsg(`You're all set, Ahmed. If you need anything else, just message us here. 👋`);
+      return;
+    }
+    if (state === STATES.DECLINED) {
+      await addBotMsg(`Got it — we're here whenever you need us. Take care! 🙂`);
+      return;
+    }
+  }
+
+  async function confirmBooking() {
+    const slot = `${scheduledDate} at ${scheduledTime}`;
+    await addBotMsg(
+      `Done! Your refill consultation is booked for **${slot}**. Your doctor will call you then. 😊\n\n` +
+      `Take care, Ahmed — reach out anytime if you need anything!`
+    );
+  }
+
+  // ---- Boot --------------------------------------------------------------
+  async function startDemo() {
+    state = STATES.AWAIT_YESNO;
+    scheduledDate = null;
+    scheduledTime = null;
+    chat.innerHTML = "";
+    addDateDivider("Wed, 22 Apr");
+
+    await new Promise(r => setTimeout(r, 600));
+    await addBotMsg(
+      `Hi **Ahmed**, this is a message from your healthcare team.\n\n` +
+      `The following medication refill is coming up:\n` +
+      `• **Metformin 500mg**: is due in 3 days (on 25 Apr)\n\n` +
+      `Would you like to schedule a callback with your doctor to arrange your refill? Reply **YES** to book or **NO** if you have medication remaining with you.`
+    );
+    input.focus();
+  }
+
+  // Wire up
+  sendBtn.addEventListener("click", handleSend);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") handleSend();
+  });
+  resetBtn.addEventListener("click", startDemo);
+
+  // Live clock in status bar
+  function tickClock() {
+    const d = new Date();
+    let h = d.getHours();
+    const m = d.getMinutes();
+    document.getElementById("clock").textContent =
+      `${h}:${m.toString().padStart(2, "0")}`;
+  }
+  tickClock();
+  setInterval(tickClock, 30000);
+
+  startDemo();
+</script>
+</body>
+</html>
